@@ -91,6 +91,30 @@ patchfiles-append \
     0019-ntdll-HACK-Recognize-WINE_DISABLE_NX_COMPAT-env.diff \
     2001-msync-CW.patch
 
+patchfiles-append \
+    dwproton/0001-em-backports/0003-ntoskrnl-Implement-PsGetProcessSessionId.patch \
+    dwproton/0001-em-backports/0004-ntoskrnl-Implement-PsGetProcessCreateTimeQuadPart.patch \
+    dwproton/0001-em-backports/0005-ntoskrnl-Implement-PsGetThreadProcess.patch \
+    dwproton/0001-em-backports/0006-ntoskrnl-Add-stub-for-KeRegisterBugCheckCallback.patch \
+    dwproton/0001-em-backports/0007-ntoskrnl-Add-stub-for-KeRegisterBugCheckReasonCallba.patch \
+    dwproton/0001-em-backports/0008-ntoskrnl-Add-stub-for-KeDeregisterBugCheckReasonCall.patch \
+    dwproton/0001-em-backports/0009-ntoskrnl-Add-semi-stub-for-MmGetVirtualForPhysical.patch \
+    dwproton/0001-em-backports/0010-ntoskrnl-Implement-PsGetProcessImageFileName.patch \
+    dwproton/0001-em-backports/0011-ntoskrnl-Implement-SeLocateProcessImageName.patch \
+    dwproton/0001-em-backports/0012-ntoskrnl-Implement-PsReferencePrimaryToken.patch \
+    dwproton/0001-em-backports/0013-ntoskrnl-Implement-PsGetContextThread.patch \
+    dwproton/0001-em-backports/0014-fixup-ntoskrnl-Fix-bugs-with-create_process_object.patch \
+    dwproton/0001-em-backports/0015-fixup-ntoskrnl-SeLocateProcessImageName.patch \
+    dwproton/0001-em-backports/0016-ntoskrnl-Add-stub-for-KeCapturePersistentThreadState.patch \
+    dwproton/0001-em-backports/0017-ntoskrnl-Implement-MmGetPhysicalMemoryRanges.patch \
+    dwproton/0001-em-backports/0018-ntoskrnl-Implement-PsGetProcessPeb.patch \
+    dwproton/0002-misc-dw/0005-wdfldr.sys-Add-stub-dll.patch \
+    dwproton/0002-misc-dw/0006-wdfldr.sys-Semi-implement-WdfVersionBind.patch \
+    dwproton/0002-misc-dw/0007-wdfldr.sys-Populate-function-table-for-WdfDriverMini.patch \
+    dwproton/0002-misc-dw/0008-ntoskrnl.exe-Add-stub-for-KeGetCurrentIrql.patch \
+    dwproton/0002-misc-dw/0011-ntdll-Stop-unwinding-on-access-violation.patch \
+    mf/0003-mfreadwrite-reader-Rely-on-the-video-processor-sampl.patch
+
 configure.checks.implicit_function_declaration.whitelist-append \
     __clear_cache \
     fallocate \
