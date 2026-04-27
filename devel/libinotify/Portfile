@@ -23,6 +23,13 @@ checksums                   rmd160  fd1cd0d82b4e0f8e013a67cc27802616535709fd \
 
 use_autoreconf              yes
 
+# macOS 26 SDK exposes fdclosedir(), but it is 26.4+ while MacPorts
+# targets 26.0 on this platform. Use the bundled compatibility function.
+if {${os.platform} eq "darwin" && ${os.major} >= 25} {
+    configure.args-append \
+                            ac_cv_func_fdclosedir=no
+}
+
 configure.checks.implicit_function_declaration.whitelist-append \
                             pthread_barrier_init \
                             pthread_barrier_wait \
