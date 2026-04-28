@@ -113,6 +113,7 @@ patchfiles-append \
     dwproton/0002-misc-dw/0007-wdfldr.sys-Populate-function-table-for-WdfDriverMini.patch \
     dwproton/0002-misc-dw/0008-ntoskrnl.exe-Add-stub-for-KeGetCurrentIrql.patch \
     dwproton/0002-misc-dw/0011-ntdll-Stop-unwinding-on-access-violation.patch \
+    dwproton/gi-timeout/0009-HACK-ws2_32-Allow-changing-request-timeout-with-WINE.patch \
     mf/0003-mfreadwrite-reader-Rely-on-the-video-processor-sampl.patch
 
 configure.checks.implicit_function_declaration.whitelist-append \
