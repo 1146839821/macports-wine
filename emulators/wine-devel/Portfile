@@ -88,7 +88,8 @@ patchfiles-append \
     0016-ntdll-HACK-Winehq-Bug-56441.diff \
     0017-winemetal-new-stub.diff \
     0018-ntdll-HACK-Recognize-ROSETTA_X87_PATH-env.diff \
-    0019-ntdll-HACK-Recognize-WINE_DISABLE_NX_COMPAT-env.diff
+    0019-ntdll-HACK-Recognize-WINE_DISABLE_NX_COMPAT-env.diff \
+    2001-msync-CW.patch
 
 configure.checks.implicit_function_declaration.whitelist-append \
     __clear_cache \
