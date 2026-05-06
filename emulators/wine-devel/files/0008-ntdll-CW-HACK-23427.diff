@@ -59,9 +59,9 @@ index 73189df16430..91f6038499a7 100644
 @@ -2351,6 +2391,8 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  #ifdef __APPLE__
          /* CW HACK 20186 */
-         if (handle_cet_nop( ucontext, &context.c )) return;
+         if (handle_cet_nop( sigcontext, &context.c )) return;
 +        /* CW HACK 23427 */
-+        if (emulate_xgetbv( ucontext, &context.c )) return;
++        if (emulate_xgetbv( sigcontext, &context.c )) return;
  #endif
          rec.ExceptionCode = EXCEPTION_ILLEGAL_INSTRUCTION;
          break;

@@ -1,11 +1,11 @@
 diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
-index 5f7dcbc7f68..223e0cf1987 100644
+index 50539d54126..e5fd9ad63b0 100644
 --- a/dlls/ntdll/unix/signal_x86_64.c
 +++ b/dlls/ntdll/unix/signal_x86_64.c
-@@ -2678,6 +2678,18 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+@@ -2577,6 +2577,18 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
  
  
- #if defined(__APPLE__) || defined(PR_SET_SYSCALL_USER_DISPATCH)
+ #if defined(__APPLE__) || defined(__linux__)
 +
 +#ifdef __APPLE__
 +/* CW Hack 24265 */
@@ -21,34 +21,34 @@ index 5f7dcbc7f68..223e0cf1987 100644
  /**********************************************************************
   *		sigsys_handler
   *
-@@ -2714,6 +2726,30 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+@@ -2614,6 +2626,30 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
          frame->restore_flags |= CONTEXT_CONTROL;
      }
-     RIP_sig(ucontext) = (ULONG64)__wine_syscall_dispatcher_prolog_end_ptr;
+     RIP_sig(sigcontext) = (ULONG64)__wine_syscall_dispatcher_prolog_end_ptr;
 +
 +#ifdef __APPLE__
 +    /* CW Hack 24265 */
-+    if (is_rosetta2 && FPU_sig(ucontext))
++    if (is_rosetta2 && FPU_sig(sigcontext))
 +    {
 +        XMM_SAVE_AREA32 fpu;
 +        unsigned int direct_mxcsr;
 +        __asm__ volatile( "stmxcsr %0" : "=m" (direct_mxcsr) );
-+        memcpy( &fpu, FPU_sig(ucontext), sizeof(fpu) );
++        memcpy( &fpu, FPU_sig(sigcontext), sizeof(fpu) );
 +
 +        if (direct_mxcsr != fpu.MxCsr)
 +        {
 +            fpu.MxCsr = direct_mxcsr;
-+            memcpy( FPU_sig(ucontext), &fpu, sizeof(fpu) );
++            memcpy( FPU_sig(sigcontext), &fpu, sizeof(fpu) );
 +
 +            /* On the M3, Rosetta will restore mxcsr to the initial, incorrect
 +               value from the sigcontext, even if we change it. So we jump to a
 +               thunk that restores the value from amd64_thread_data. */
-+            amd64_thread_data()->mxcsr = direct_mxcsr;
-+            RIP_sig(ucontext) = (ULONG64)__restore_mxcsr_thunk;
++            amd64_thread_data(data)->mxcsr = direct_mxcsr;
++            RIP_sig(sigcontext) = (ULONG64)__restore_mxcsr_thunk;
 +        }
 +    }
 +#endif
 +
  }
  #endif
- 
+

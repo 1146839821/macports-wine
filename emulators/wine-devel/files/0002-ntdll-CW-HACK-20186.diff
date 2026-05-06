@@ -79,7 +79,7 @@ index c321b98c4ed..73189df1643 100644
      case TRAP_x86_PRIVINFLT:   /* Invalid opcode exception */
 +#ifdef __APPLE__
 +        /* CW HACK 20186 */
-+        if (handle_cet_nop( ucontext, &context.c )) return;
++        if (handle_cet_nop( sigcontext, &context.c )) return;
 +#endif
          rec.ExceptionCode = EXCEPTION_ILLEGAL_INSTRUCTION;
          break;
