@@ -8,3 +8,7 @@ Portfile~
 *.diff~
 *.patch~
 *.DS_Store
+
+tools/
+dist/
+.idea/
