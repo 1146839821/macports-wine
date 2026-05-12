@@ -1,13 +1,3 @@
-From 318a091dd4a122735ef5df09875d59d07d64874f Mon Sep 17 00:00:00 2001
-From: Dean M Greer <38226388+Gcenx@users.noreply.github.com>
-Date: Thu, 22 Dec 2022 11:22:05 -0500
-Subject: [PATCH] remove cross_compiling check
-
----
- configure    | 6 +++---
- configure.ac | 6 +++---
- 2 files changed, 6 insertions(+), 6 deletions(-)
-
 diff --git a/configure b/configure
 index 9c937f61..2d25a600 100755
 --- a/configure
@@ -70,6 +60,3 @@ index 480f673e..ee890f6a 100644
    then
        WINE_TRY_CFLAGS([-Werror=extra-tokens],[EXTRACFLAGS="$EXTRACFLAGS -Werror=extra-tokens"])
        WINE_TRY_CFLAGS([-Werror=implicit-function-declaration],[EXTRACFLAGS="$EXTRACFLAGS -Werror=implicit-function-declaration"])
--- 
-2.37.1 (Apple Git-137.1)
-

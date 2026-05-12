@@ -42,8 +42,3 @@ Next place a copy of the `MacOSX10.13.sdk` into `/Library/Developer/CommandLineT
 ### Apple Silicon systems, force x86_64
 Due to macports-ports bugs we need to force MacPorts to only install for x86_64
 > echo "build_arch x86_64" | sudo tee -a /opt/local/etc/macports/macports.conf >/dev/null
-
-<br>
-
-### Prior project history
-You can find the prior commit history [here](https://github.com/Gcenx/macports-wine/tree/master)
