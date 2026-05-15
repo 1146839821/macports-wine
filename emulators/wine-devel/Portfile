@@ -92,6 +92,7 @@ patchfiles-append \
 
 configure.checks.implicit_function_declaration.whitelist-append \
     __clear_cache \
+    alignof \
     fallocate \
     gethostbyaddr_r \
     gethostbyname_r \
