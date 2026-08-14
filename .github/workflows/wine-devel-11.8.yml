@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: wine-devel-11.8-${{ github.workflow }}-${{ github.ref }}
+  group: wine-devel-11.8-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
