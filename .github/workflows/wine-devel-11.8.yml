@@ -188,6 +188,66 @@ jobs:
 
           sudo /opt/local/bin/port -N -n -s -v install "${PORT_NAME}" +gstreamer
 
+      - name: Verify configure arguments
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          work_dir="$(sudo /opt/local/bin/port -q work "${PORT_NAME}")"
+          config_status="$(
+            sudo find "${work_dir}" -type f -name config.status -print -quit
+          )"
+          test -n "${config_status}"
+
+          configure_arguments="$(sudo "${config_status}" --config)"
+          printf '%s\n' "${configure_arguments}"
+
+          required_arguments=(
+            --build=x86_64-apple-darwin
+            --enable-archs=i386,x86_64
+            --disable-tests
+            --disable-winebth_sys
+            --without-alsa
+            --without-capi
+            --with-coreaudio
+            --with-cups
+            --without-dbus
+            --with-ffmpeg
+            --with-freetype
+            --with-gettext
+            --without-gettextpo
+            --without-gphoto
+            --with-gnutls
+            --without-gssapi
+            --with-gstreamer
+            --with-inotify
+            --without-krb5
+            --with-mingw=/opt/local/libexec/llvm-mingw/bin/clang
+            --without-netapi
+            --with-opencl
+            --without-opengl
+            --without-oss
+            --with-pcap
+            --with-pcsclite
+            --with-pthread
+            --without-pulse
+            --without-sane
+            --with-sdl
+            --without-udev
+            --without-usb
+            --without-v4l2
+            --with-vulkan
+            --without-wayland
+            --without-x
+          )
+
+          for required_argument in "${required_arguments[@]}"; do
+            [[ "${configure_arguments}" == *"${required_argument}"* ]] || {
+              printf 'Missing configure argument: %s\n' "${required_argument}" >&2
+              exit 1
+            }
+          done
+
       - name: Verify build
         shell: bash
         run: |
@@ -203,6 +263,69 @@ jobs:
           /usr/bin/file /opt/local/bin/wine
           df -h /
 
+      - name: Bundle Wine and runtime dependencies
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/wine-devel-artifacts
+        run: |
+          set -euo pipefail
+
+          runtime_dir="${ARTIFACT_DIR}/runtime-prefix"
+          metadata_dir="${ARTIFACT_DIR}/metadata"
+          runtime_ports="${metadata_dir}/runtime-ports.txt"
+          runtime_contents="${metadata_dir}/runtime-contents.txt"
+          runtime_archive="${runtime_dir}/${PORT_NAME}-${PORT_VERSION}-runtime-prefix-macos-15-intel.tar.gz"
+
+          mkdir -p "${runtime_dir}" "${metadata_dir}"
+
+          {
+            printf '%s\n' "${PORT_NAME}"
+            /opt/local/bin/port -q rdeps --no-build --no-test \
+              "${PORT_NAME}" +gstreamer
+          } \
+            | /usr/bin/sed -E \
+                -e 's/^[[:space:]]+//' \
+                -e 's/[[:space:]].*$//' \
+            | /usr/bin/awk 'NF && !seen[$0]++' \
+            > "${runtime_ports}"
+
+          for required_runtime_port in \
+            gstreamer.framework \
+            MoltenVK-latest \
+            libsdl2 \
+            mingw-w64-wine-gecko-2.47.4 \
+            mingw-w64-wine-mono-11.1.0; do
+            grep -Fxq "${required_runtime_port}" "${runtime_ports}"
+          done
+
+          : > "${runtime_contents}"
+          while IFS= read -r runtime_port; do
+            /opt/local/bin/port -q contents "${runtime_port}" \
+              | /usr/bin/sed -E \
+                  -e 's/^[[:space:]]+//' \
+                  -e 's#^/##' \
+              >> "${runtime_contents}"
+          done < "${runtime_ports}"
+          /usr/bin/sort -u -o "${runtime_contents}" "${runtime_contents}"
+
+          grep -Eq '^opt/local/Library/Frameworks/GStreamer\.framework/.*libavcodec' \
+            "${runtime_contents}"
+          grep -Eq '^opt/local/lib/libMoltenVK.*\.dylib$' "${runtime_contents}"
+          grep -Eq '^opt/local/lib/libSDL2.*\.dylib$' "${runtime_contents}"
+          grep -Fq 'share/wine/mono/wine-mono-11.1.0' "${runtime_contents}"
+          grep -Fq 'share/wine/gecko/wine-gecko-2.47.4' "${runtime_contents}"
+
+          sudo /usr/bin/tar -C / -czf "${runtime_archive}" \
+            -T "${runtime_contents}"
+          /usr/bin/shasum -a 256 "${runtime_archive}" \
+            > "${runtime_dir}/SHA256SUMS"
+
+          printf 'Bundled %s runtime ports and %s files.\n' \
+            "$(wc -l < "${runtime_ports}" | tr -d ' ')" \
+            "$(wc -l < "${runtime_contents}" | tr -d ' ')"
+          ls -lh "${runtime_archive}"
+          df -h /
+
       - name: Collect build output and diagnostics
         if: always()
         shell: bash
@@ -214,7 +337,8 @@ jobs:
           mkdir -p \
             "${ARTIFACT_DIR}/logs" \
             "${ARTIFACT_DIR}/macports-image" \
-            "${ARTIFACT_DIR}/metadata"
+            "${ARTIFACT_DIR}/metadata" \
+            "${ARTIFACT_DIR}/runtime-prefix"
 
           {
             date -u

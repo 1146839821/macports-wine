@@ -34,9 +34,23 @@ patches, or the workflow itself change.
 
 The job installs a checksum-pinned MacPorts release, registers this repository
 before the official ports tree, installs dependencies, and forces `wine-devel`
-itself to build from source. Successful runs upload the MacPorts image archive
-(not a standalone app bundle); failed runs still upload the MacPorts build log
-and available configure logs.
+itself to build from source. Successful runs upload both the single-port
+MacPorts image and a `runtime-prefix` archive containing Wine plus its recursive
+library and runtime dependencies, including GStreamer/FFmpeg, MoltenVK, SDL2,
+Wine Mono, and Wine Gecko. Failed runs still upload the MacPorts build log and
+available configure logs.
+
+The runtime archive keeps MacPorts' `/opt/local` layout because Wine's Mach-O
+load commands and framework paths use that prefix. Extract it on a clean target
+machine with:
+
+```sh
+sudo tar -xzf wine-devel-11.8-runtime-prefix-macos-15-intel.tar.gz -C /
+/opt/local/bin/wine --version
+```
+
+Do not extract it over an unrelated existing MacPorts installation unless you
+intend to replace files in that prefix.
 
 <br>
 
