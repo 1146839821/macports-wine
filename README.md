@@ -23,8 +23,20 @@ A MacPorts overlay that provides recent versions of wine.
 
 ## How to use this repository
 After installing MacPorts you need a modern version of `git`\
-git clone the repository into /opt then follow [4.6. Local Portfile Repositories](https://guide.macports.org/#development.local-repositories)\
+git clone the repository into /opt then follow [4.7. Local Portfile Repositories](https://guide.macports.org/#development.local-repositories)\
 Next run `port -v sync` you can now install any of the provided Ports.
+
+## CI build
+The [Build Wine 11.8](.github/workflows/wine-devel-11.8.yml) GitHub Actions
+workflow builds `emulators/wine-devel` on an Intel macOS 15 runner. It can be
+started manually and also runs when the Wine Portfile, its local dependencies,
+patches, or the workflow itself change.
+
+The job installs a checksum-pinned MacPorts release, registers this repository
+before the official ports tree, installs dependencies, and forces `wine-devel`
+itself to build from source. Successful runs upload the MacPorts image archive
+(not a standalone app bundle); failed runs still upload the MacPorts build log
+and available configure logs.
 
 <br>
 

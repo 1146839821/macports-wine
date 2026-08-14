@@ -1,0 +1,304 @@
+name: Build Wine 11.8
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/wine-devel-11.8.yml"
+      - "cross/llvm-mingw/**"
+      - "cross/mingw-w64-wine-mono/**"
+      - "devel/libinotify/**"
+      - "emulators/wine-devel/**"
+      - "multimedia/gstreamer.framework/**"
+  pull_request:
+    paths:
+      - ".github/workflows/wine-devel-11.8.yml"
+      - "cross/llvm-mingw/**"
+      - "cross/mingw-w64-wine-mono/**"
+      - "devel/libinotify/**"
+      - "emulators/wine-devel/**"
+      - "multimedia/gstreamer.framework/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wine-devel-11.8-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MACPORTS_VERSION: "2.12.5"
+  MACPORTS_PACKAGE: "MacPorts-2.12.5-15-Sequoia.pkg"
+  MACPORTS_SHA256: "10a048e235ba252eb31ca5030dbf560409ea73cacb3267a00e3983205e9b0e36"
+  PORT_NAME: "wine-devel"
+  PORT_VERSION: "11.8"
+
+jobs:
+  build:
+    name: macOS 15 Intel
+    runs-on: macos-15-intel
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout overlay
+        uses: actions/checkout@v7
+
+      - name: Verify runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          sw_vers
+          xcodebuild -version
+          df -h /
+
+      - name: Isolate preinstalled package managers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Keep Homebrew headers and libraries out of Wine's configure checks.
+          sudo mkdir -p /opt/ci-usr-local-off /opt/ci-homebrew-off
+          if [[ -d /usr/local ]]; then
+            sudo /usr/bin/find /usr/local -mindepth 1 -maxdepth 1 \
+              -exec /bin/mv {} /opt/ci-usr-local-off/ \;
+          fi
+          if [[ -d /opt/homebrew ]]; then
+            sudo /usr/bin/find /opt/homebrew -mindepth 1 -maxdepth 1 \
+              -exec /bin/mv {} /opt/ci-homebrew-off/ \;
+          fi
+          hash -r
+
+      - name: Install MacPorts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_path="${RUNNER_TEMP}/${MACPORTS_PACKAGE}"
+          package_url="https://github.com/macports/macports-base/releases/download/v${MACPORTS_VERSION}/${MACPORTS_PACKAGE}"
+
+          /usr/bin/curl \
+            --fail \
+            --location \
+            --retry 5 \
+            --retry-all-errors \
+            --output "${package_path}" \
+            "${package_url}"
+
+          printf '%s  %s\n' "${MACPORTS_SHA256}" "${package_path}" \
+            | /usr/bin/shasum -a 256 -c -
+
+          sudo /usr/sbin/installer -pkg "${package_path}" -target /
+
+          echo "/opt/local/bin" >> "${GITHUB_PATH}"
+          echo "/opt/local/sbin" >> "${GITHUB_PATH}"
+          /opt/local/bin/port version
+
+      - name: Register the local ports overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          printf '%s\n' \
+            '' \
+            'ui_interactive no' \
+            'build_arch x86_64' \
+            | sudo tee -a /opt/local/etc/macports/macports.conf >/dev/null
+
+          chmod -R a+rX "${GITHUB_WORKSPACE}"
+          current_dir="$(dirname "$(realpath "${GITHUB_WORKSPACE}")")"
+          while [[ -n "${current_dir}" && "${current_dir}" != "/" ]]; do
+            sudo chmod a+rx "${current_dir}"
+            current_dir="$(dirname "${current_dir}")"
+          done
+
+          # The overlay uses PortGroups supplied by the official ports tree.
+          sudo /opt/local/bin/port -v sync
+
+          (
+            cd "${GITHUB_WORKSPACE}"
+            /opt/local/bin/portindex -e
+          )
+
+          sources_file="/opt/local/etc/macports/sources.conf"
+          temporary_sources="$(mktemp)"
+          {
+            printf 'file://%s [nosync]\n' "${GITHUB_WORKSPACE}"
+            /bin/cat "${sources_file}"
+          } > "${temporary_sources}"
+          sudo /usr/bin/install -o root -g wheel -m 0644 \
+            "${temporary_sources}" "${sources_file}"
+          rm -f "${temporary_sources}"
+
+      - name: Validate Wine 11.8 Portfile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expected_portfile="$(realpath "${GITHUB_WORKSPACE}/emulators/wine-devel/Portfile")"
+          actual_portfile="$(realpath "$(/opt/local/bin/port -q file "${PORT_NAME}")")"
+          version_info="$(/opt/local/bin/port -q info --version "${PORT_NAME}")"
+
+          printf 'Portfile: %s\n%s\n' "${actual_portfile}" "${version_info}"
+          test "${actual_portfile}" = "${expected_portfile}"
+          printf '%s\n' "${version_info}" \
+            | grep -Eq '(^|[^0-9])11\.8([^0-9]|$)'
+
+          sudo /opt/local/bin/port -v lint "${PORT_NAME}"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          recursive_dependencies="$(
+            /opt/local/bin/port -q rdeps "${PORT_NAME}" +gstreamer
+          )"
+          printf '%s\n' "${recursive_dependencies}"
+          for required_dependency in \
+            llvm-mingw \
+            libinotify \
+            gstreamer.framework \
+            MoltenVK-latest \
+            mingw-w64-wine-gecko-2.47.4 \
+            mingw-w64-wine-mono-11.1.0; do
+            [[ "${recursive_dependencies}" == *"${required_dependency}"* ]]
+          done
+
+          /opt/local/bin/port echo "rdepof:${PORT_NAME}"
+          sudo /opt/local/bin/port -N -v install "rdepof:${PORT_NAME}"
+
+      - name: Build Wine 11.8 from source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Dependencies may use MacPorts archives, but Wine itself must be
+          # compiled from this overlay so that every local patch is applied.
+          # Keep only Wine's work/logs and create a portable MacPorts archive;
+          # doing this after dependency installation avoids duplicating every
+          # dependency on the runner's 14 GB disk.
+          printf '%s\n' \
+            '' \
+            'portimage_mode directory_and_archive' \
+            'portarchivetype tbz2' \
+            'portautoclean no' \
+            'keeplogs yes' \
+            | sudo tee -a /opt/local/etc/macports/macports.conf >/dev/null
+
+          sudo /opt/local/bin/port -N -n -s -v install "${PORT_NAME}" +gstreamer
+
+      - name: Verify build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          installed_info="$(/opt/local/bin/port -q installed "${PORT_NAME}")"
+          wine_version="$(/opt/local/bin/wine --version)"
+
+          printf '%s\n%s\n' "${installed_info}" "${wine_version}"
+          printf '%s\n' "${installed_info}" \
+            | grep -Eq 'wine-devel @11\.8_[0-9]+.*\(active\)'
+          [[ "${wine_version}" == "wine-${PORT_VERSION}"* ]]
+          /usr/bin/file /opt/local/bin/wine
+          df -h /
+
+      - name: Collect build output and diagnostics
+        if: always()
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/wine-devel-artifacts
+        run: |
+          set -u
+
+          mkdir -p \
+            "${ARTIFACT_DIR}/logs" \
+            "${ARTIFACT_DIR}/macports-image" \
+            "${ARTIFACT_DIR}/metadata"
+
+          {
+            date -u
+            uname -a
+            sw_vers
+            xcodebuild -version
+            if [[ -x /opt/local/bin/port ]]; then
+              /opt/local/bin/port version
+              /opt/local/bin/port -q info --version "${PORT_NAME}" || true
+              /opt/local/bin/port -q file "${PORT_NAME}" || true
+              /opt/local/bin/port -q installed "${PORT_NAME}" || true
+              /opt/local/bin/port variants "${PORT_NAME}" || true
+              /bin/cat /opt/local/etc/macports/sources.conf || true
+            fi
+            if [[ -x /opt/local/bin/wine ]]; then
+              /opt/local/bin/wine --version || true
+              /usr/bin/file /opt/local/bin/wine || true
+            fi
+            df -h /
+          } > "${ARTIFACT_DIR}/metadata/build-info.txt" 2>&1
+
+          if [[ -x /opt/local/bin/port ]]; then
+            logfile="$(sudo /opt/local/bin/port -q logfile "${PORT_NAME}" 2>/dev/null || true)"
+            if [[ -n "${logfile}" ]] && sudo test -f "${logfile}"; then
+              sudo cp "${logfile}" "${ARTIFACT_DIR}/logs/main.log"
+            fi
+
+            work_dir="$(sudo /opt/local/bin/port -q work "${PORT_NAME}" 2>/dev/null || true)"
+            if [[ -n "${work_dir}" ]] && sudo test -d "${work_dir}"; then
+              sudo find "${work_dir}" -type f \
+                \( -name config.log -o -name CMakeError.log -o -name meson-log.txt \) \
+                -exec cp {} "${ARTIFACT_DIR}/logs/" \; || true
+            fi
+          fi
+
+          if [[ ! -f "${ARTIFACT_DIR}/logs/main.log" ]] \
+            && sudo test -d /opt/local/var/macports/logs; then
+            fallback_log="$(
+              sudo find /opt/local/var/macports/logs \
+                -type f -path '*wine-devel*main.log' -print -quit
+            )"
+            if [[ -n "${fallback_log}" ]]; then
+              sudo cp "${fallback_log}" "${ARTIFACT_DIR}/logs/main.log"
+            fi
+          fi
+
+          image_dir="/opt/local/var/macports/software/${PORT_NAME}"
+          if sudo test -d "${image_dir}"; then
+            archive_count=0
+            while IFS= read -r -d '' image_archive; do
+              sudo cp "${image_archive}" "${ARTIFACT_DIR}/macports-image/"
+              archive_count=$((archive_count + 1))
+            done < <(
+              sudo find "${image_dir}" -maxdepth 1 -type f -name '*.tbz2' -print0
+            )
+
+            if [[ "${archive_count}" -eq 0 ]]; then
+              sudo /usr/bin/tar \
+                -C /opt/local/var/macports/software \
+                -cf "${ARTIFACT_DIR}/macports-image/${PORT_NAME}-image.tar" \
+                "${PORT_NAME}"
+            fi
+          fi
+
+          sudo chown -R "$(id -u):$(id -g)" "${ARTIFACT_DIR}"
+
+          (
+            cd "${ARTIFACT_DIR}/macports-image"
+            : > SHA256SUMS
+            for image_archive in *; do
+              [[ -f "${image_archive}" ]] || continue
+              [[ "${image_archive}" = "SHA256SUMS" ]] && continue
+              /usr/bin/shasum -a 256 "${image_archive}" >> SHA256SUMS
+            done
+          )
+
+          find "${ARTIFACT_DIR}" -maxdepth 4 -type f -print
+
+      - name: Upload build artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wine-devel-11.8-macos-15-intel
+          path: ${{ runner.temp }}/wine-devel-artifacts
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
