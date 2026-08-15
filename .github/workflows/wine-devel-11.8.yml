@@ -120,7 +120,12 @@ jobs:
           /opt/local/bin/port version
 
           cache_root="${RUNNER_TEMP}/wine-ci-cache"
-          mkdir -p "${cache_root}/distfiles" "${cache_root}/ccache"
+          mkdir -p "${cache_root}/distfiles"
+          sudo mkdir -p "${cache_root}/ccache/tmp"
+          # MacPorts may build as a dedicated user. Cache archives preserve
+          # restrictive ccache directory modes, so normalise them after every
+          # restore before any compiler process tries to create temp files.
+          sudo chmod -R a+rwX "${cache_root}/ccache"
           sudo mkdir -p /opt/local/var/macports/distfiles
           if find "${cache_root}/distfiles" -mindepth 1 -print -quit \
             | grep -q .; then
