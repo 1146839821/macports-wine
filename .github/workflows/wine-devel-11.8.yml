@@ -37,9 +37,22 @@ env:
 
 jobs:
   build:
-    name: macOS 15 Intel
+    name: macOS 15 Intel (${{ matrix.flavor }})
     runs-on: macos-15-intel
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: full
+            port_variants: "+gstreamer +endfield"
+          - flavor: control
+            port_variants: "+gstreamer -endfield"
+          - flavor: rosetta-stack
+            port_variants: "+gstreamer +endfield +rosetta_stack"
+    env:
+      BUILD_FLAVOR: ${{ matrix.flavor }}
+      PORT_VARIANTS: ${{ matrix.port_variants }}
 
     steps:
       - name: Checkout overlay
@@ -50,8 +63,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/wine-ci-cache
-          key: wine-devel-11.8-macos-15-intel-${{ hashFiles('.github/scripts/**', '.github/workflows/wine-devel-11.8.yml', 'cross/llvm-mingw/**', 'cross/mingw-w64-wine-mono/**', 'devel/libinotify/**', 'emulators/wine-devel/**', 'multimedia/gstreamer.framework/**') }}-${{ github.run_id }}
+          key: wine-devel-11.8-macos-15-intel-shared-${{ hashFiles('.github/scripts/**', '.github/workflows/wine-devel-11.8.yml', 'cross/llvm-mingw/**', 'cross/mingw-w64-wine-mono/**', 'devel/libinotify/**', 'emulators/wine-devel/**', 'multimedia/gstreamer.framework/**') }}-${{ github.run_id }}
           restore-keys: |
+            wine-devel-11.8-macos-15-intel-shared-
             wine-devel-11.8-macos-15-intel-
 
       - name: Verify runner
@@ -172,8 +186,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          read -r -a port_variants <<< "${PORT_VARIANTS}"
           recursive_dependencies="$(
-            /opt/local/bin/port -q rdeps "${PORT_NAME}" +gstreamer
+            /opt/local/bin/port -q rdeps "${PORT_NAME}" "${port_variants[@]}"
           )"
           printf '%s\n' "${recursive_dependencies}"
           for required_dependency in \
@@ -212,7 +227,9 @@ jobs:
             'keeplogs yes' \
             | sudo tee -a /opt/local/etc/macports/macports.conf >/dev/null
 
-          sudo /opt/local/bin/port -N -n -s -v install "${PORT_NAME}" +gstreamer
+          read -r -a port_variants <<< "${PORT_VARIANTS}"
+          sudo /opt/local/bin/port -N -n -s -v install \
+            "${PORT_NAME}" "${port_variants[@]}"
 
       - name: Verify configure arguments
         shell: bash
@@ -282,10 +299,29 @@ jobs:
           installed_info="$(/opt/local/bin/port -q installed "${PORT_NAME}")"
           wine_version="$(/opt/local/bin/wine --version)"
 
-          printf '%s\n%s\n' "${installed_info}" "${wine_version}"
+          printf 'Build flavor: %s\nPort variants: %s\n%s\n%s\n' \
+            "${BUILD_FLAVOR}" "${PORT_VARIANTS}" "${installed_info}" "${wine_version}"
           printf '%s\n' "${installed_info}" \
             | grep -Eq 'wine-devel @11\.8_[0-9]+.*\(active\)'
           [[ "${wine_version}" == "wine-${PORT_VERSION}"* ]]
+          case "${BUILD_FLAVOR}" in
+            full)
+              printf '%s\n' "${installed_info}" | grep -q '+endfield'
+              ! printf '%s\n' "${installed_info}" | grep -q '+rosetta_stack'
+              ;;
+            control)
+              ! printf '%s\n' "${installed_info}" | grep -q '+endfield'
+              ! printf '%s\n' "${installed_info}" | grep -q '+rosetta_stack'
+              ;;
+            rosetta-stack)
+              printf '%s\n' "${installed_info}" | grep -q '+endfield'
+              printf '%s\n' "${installed_info}" | grep -q '+rosetta_stack'
+              ;;
+            *)
+              echo "Unknown build flavor: ${BUILD_FLAVOR}" >&2
+              exit 1
+              ;;
+          esac
           /usr/bin/file /opt/local/bin/wine
           /opt/local/bin/ccache --show-stats
           df -h /
@@ -303,6 +339,9 @@ jobs:
           archive="${ARTIFACT_DIR}/wine.tar.xz"
 
           mkdir -p "${ARTIFACT_DIR}" "${metadata_dir}"
+          printf 'Build flavor: %s\nPort variants: %s\n' \
+            "${BUILD_FLAVOR}" "${PORT_VARIANTS}" \
+            > "${metadata_dir}/build-variant.txt"
 
           # The configured source tree is no longer needed. Removing it before
           # staging the framework and runtime libraries keeps the 14 GB runner
@@ -430,7 +469,7 @@ jobs:
           hash -r
 
       - name: Save build cache
-        if: always() && steps.cache-restore.outcome == 'success'
+        if: always() && steps.cache-restore.outcome == 'success' && matrix.flavor == 'full'
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/wine-ci-cache
@@ -440,7 +479,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: wine-devel-11.8-macos-15-intel
+          name: wine-devel-11.8-macos-15-intel-${{ matrix.flavor }}
           path: ${{ runner.temp }}/wine-devel-artifacts
           if-no-files-found: error
           retention-days: 14

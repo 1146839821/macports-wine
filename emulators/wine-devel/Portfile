@@ -10,7 +10,7 @@ github.setup                wine-mirror wine 11.8 wine-
 github.tarball_from         archive
 name                        wine-devel
 conflicts                   wine-stable wine-staging wine-crossover
-revision                    1
+revision                    2
 platforms                   {darwin > 15}
 set branch                  [lindex [split ${version} .] 0].x
 license                     LGPL-2.1+
@@ -113,14 +113,25 @@ patchfiles-append \
     dwproton/0002-misc-dw/0007-wdfldr.sys-Populate-function-table-for-WdfDriverMini.patch \
     dwproton/0002-misc-dw/0008-ntoskrnl.exe-Add-stub-for-KeGetCurrentIrql.patch \
     dwproton/0002-misc-dw/0011-ntdll-Stop-unwinding-on-access-violation.patch \
-    endfield-finewine/stage2-dwproton/misc/0008-wintrust-Prevent-checking-if-winex11-winewayland-are.patch \
-    endfield-finewine/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch \
-    endfield-finewine/stage2-dwproton/misc/0010-HACK-kernel32-Lock-GetProcAddress-hack-to-when-neede.patch \
-    endfield-finewine/stage2-dwproton/misc/0011-ntdll-Implement-NtDelayExecution-relative-wait-using.patch \
     dwproton/gi-timeout/0009-HACK-ws2_32-Allow-changing-request-timeout-with-WINE.patch \
-    mf/0003-mfreadwrite-reader-Rely-on-the-video-processor-sampl.patch \
-    endfield-finewine/stage1-macos/0000-build-fix-win32u-vulkan-soname-fallback.patch \
-    endfield-finewine/wine-11.8/stage1-macos/0001-macos-rosetta-signal-fixes-nop-and-privinstr.patch
+    mf/0003-mfreadwrite-reader-Rely-on-the-video-processor-sampl.patch
+
+variant endfield description "Apply the Endfield FineWine macOS and DWProton patch sets" {
+    patchfiles-append \
+        endfield-finewine/stage2-dwproton/misc/0008-wintrust-Prevent-checking-if-winex11-winewayland-are.patch \
+        endfield-finewine/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch \
+        endfield-finewine/stage2-dwproton/misc/0010-HACK-kernel32-Lock-GetProcAddress-hack-to-when-neede.patch \
+        endfield-finewine/stage2-dwproton/misc/0011-ntdll-Implement-NtDelayExecution-relative-wait-using.patch \
+        endfield-finewine/stage1-macos/0000-build-fix-win32u-vulkan-soname-fallback.patch \
+        endfield-finewine/wine-11.8/stage1-macos/0001-macos-rosetta-signal-fixes-nop-and-privinstr.patch
+}
+
+variant rosetta_stack description "Diagnostic: reserve at least 32 MiB per thread under Rosetta" {
+    patchfiles-append \
+        0020-ntdll-DIAGNOSTIC-Rosetta-stack-reserve.diff
+}
+
+default_variants            +endfield
 
 configure.checks.implicit_function_declaration.whitelist-append \
     __clear_cache \

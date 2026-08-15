@@ -44,6 +44,18 @@ Mach-O install names and search paths are rewritten to relative `@rpath` and
 `@loader_path` references before the archive is audited and signed. Failed runs
 still upload the MacPorts build log and available configure logs.
 
+For Rosetta stack-overflow diagnosis the workflow builds three artifacts:
+
+- `full`: the normal build with all Endfield FineWine patches;
+- `control`: the same build without the newly imported Endfield patch sets;
+- `rosetta-stack`: the full build with a diagnostic 32 MiB minimum thread-stack
+  reserve under Rosetta. The Windows guard page remains enabled.
+
+Run the same game and Wine prefix with all three archives. A passing `control`
+points to an Endfield patch regression; a passing `rosetta-stack` with failing
+`full` indicates finite stack pressure; if all three fail similarly, the most
+likely cause is an unbounded exception/call recursion or Rosetta itself.
+
 Extract and verify the archive with:
 
 ```sh
