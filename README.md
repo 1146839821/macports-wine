@@ -47,14 +47,19 @@ still upload the MacPorts build log and available configure logs.
 For Rosetta stack-overflow diagnosis the workflow builds three artifacts:
 
 - `full`: the normal build with all Endfield FineWine patches;
-- `control`: the same build without the newly imported Endfield patch sets;
-- `rosetta-stack`: the full build with a diagnostic 32 MiB minimum thread-stack
-  reserve under Rosetta. The Windows guard page remains enabled.
+- `vanilla`: Wine 11.8 without the repository's CrossOver, MSync, DWProton,
+  Endfield, or other game-compatibility patch sets;
+- `rosetta-stack`: the full build with an unconditional diagnostic 32 MiB
+  minimum thread-stack reserve. It prints a `[ROSETTA-STACK]` line for every
+  allocated thread stack, and the Windows guard page remains enabled.
 
-Run the same game and Wine prefix with all three archives. A passing `control`
-points to an Endfield patch regression; a passing `rosetta-stack` with failing
-`full` indicates finite stack pressure; if all three fail similarly, the most
-likely cause is an unbounded exception/call recursion or Rosetta itself.
+Run the same game with a separate fresh Wine prefix for each archive. Confirm
+the identity in `wine/share/doc/wine-devel/build-variant.txt`. A passing `vanilla`
+points to one of the repository's compatibility patches; a failing `vanilla`
+points to upstream Wine, Rosetta, or the game. For `rosetta-stack`, first verify
+that the log contains `[ROSETTA-STACK]` and that the final stack range is at
+least 32 MiB. If it still overflows, the likely cause is unbounded exception or
+call recursion rather than a merely undersized reserve.
 
 Extract and verify the archive with:
 

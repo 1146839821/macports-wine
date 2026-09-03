@@ -1,30 +1,24 @@
 diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
-index 9297a5f3798..8a154b6dbe2 100644
+index 9297a5f3798..37c682abcc0 100644
 --- a/dlls/ntdll/unix/virtual.c
 +++ b/dlls/ntdll/unix/virtual.c
-@@ -4381,6 +4381,10 @@ NTSTATUS virtual_clear_tls_index( ULONG index )
- }
+@@ -4390,12 +4390,18 @@ NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, UL
+     struct file_view *view;
+     NTSTATUS status;
+     sigset_t sigset;
+-    SIZE_T size;
++    SIZE_T requested_size, size;
  
- 
-+#ifdef __APPLE__
-+static int is_apple_silicon(void);
-+#endif
-+
- /***********************************************************************
-  *           virtual_alloc_thread_stack
-  */
-@@ -4396,6 +4400,14 @@ NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, UL
+     if (!reserve_size) reserve_size = main_image_info.MaximumStackSize;
      if (!commit_size) commit_size = main_image_info.CommittedStackSize;
  
      size = max( reserve_size, commit_size );
-+#ifdef __APPLE__
-+    /* Diagnostic workaround for Rosetta aborting when a translated push
-+     * instruction reaches Wine's final stack guard page. Keep the guard page
-+     * intact, but provide enough reserve to distinguish finite stack pressure
-+     * from an exception or call recursion that grows without bound. */
-+    if (is_apple_silicon() && size < 32 * 1024 * 1024)
-+        size = 32 * 1024 * 1024;
-+#endif
++    requested_size = size;
++    /* Diagnostic build: make the change unconditional so artifact identity
++     * and the sysctl.proc_translated result cannot mask whether it ran. */
++    if (size < 32 * 1024 * 1024) size = 32 * 1024 * 1024;
++    WARN( "[ROSETTA-STACK] thread stack reserve requested %zu selected %zu\n",
++          requested_size, size );
      if (size < 1024 * 1024) size = 1024 * 1024;  /* Xlib needs a large stack */
      size = ROUND_SIZE( 0, size, granularity_mask );
  

@@ -10,7 +10,7 @@ github.setup                wine-mirror wine 11.8 wine-
 github.tarball_from         archive
 name                        wine-devel
 conflicts                   wine-stable wine-staging wine-crossover
-revision                    2
+revision                    3
 platforms                   {darwin > 15}
 set branch                  [lindex [split ${version} .] 0].x
 license                     LGPL-2.1+
@@ -68,55 +68,60 @@ patch.pre_args-replace -p0 -p1
 
 # Upstream bug fixes here
 
-# Hacks applied to Winehq macOS pacakges
-patchfiles-append \
-    0001-ntdll-CW-HACK-18947.diff \
-    0002-ntdll-CW-HACK-20186.diff \
-    0003-wow64cpu-CW-HACK-20760.diff \
-    0004-kernelbase-HACK-Add-hack_append_command_line.diff \
-    0005-kernelbase-CW-HACK-13322-17315-21883.diff \
-    0006-winemac-CW-HACK-22435.diff \
-    0007-ntdll-CW-HACK-22435.diff \
-    0008-ntdll-CW-HACK-23427.diff \
-    0009-win32u-CW-HACK-23950.diff \
-    0010-ntdll-CW-HACK-24256.diff \
-    0011-ntdll-CW-Hack-24265.diff \
-    0012-ntdll-CW-HACK-24711.diff \
-    0013-ntdll-CW-HACK-24945.diff \
-    0014-ntdll-CW-HACK-25719.diff \
-    0015-win32u-CW-HACK-25909.diff \
-    0016-ntdll-HACK-Winehq-Bug-56441.diff \
-    0017-winemetal-new-stub.diff \
-    0018-ntdll-HACK-Recognize-ROSETTA_X87_PATH-env.diff \
-    0019-ntdll-HACK-Recognize-WINE_DISABLE_NX_COMPAT-env.diff \
-    2001-msync-CW.patch
+variant vanilla conflicts endfield rosetta_stack description \
+    "Build from unmodified Wine sources without repository compatibility patches" {}
 
-patchfiles-append \
-    dwproton/0001-em-backports/0003-ntoskrnl-Implement-PsGetProcessSessionId.patch \
-    dwproton/0001-em-backports/0004-ntoskrnl-Implement-PsGetProcessCreateTimeQuadPart.patch \
-    dwproton/0001-em-backports/0005-ntoskrnl-Implement-PsGetThreadProcess.patch \
-    dwproton/0001-em-backports/0006-ntoskrnl-Add-stub-for-KeRegisterBugCheckCallback.patch \
-    dwproton/0001-em-backports/0007-ntoskrnl-Add-stub-for-KeRegisterBugCheckReasonCallba.patch \
-    dwproton/0001-em-backports/0008-ntoskrnl-Add-stub-for-KeDeregisterBugCheckReasonCall.patch \
-    dwproton/0001-em-backports/0009-ntoskrnl-Add-semi-stub-for-MmGetVirtualForPhysical.patch \
-    dwproton/0001-em-backports/0010-ntoskrnl-Implement-PsGetProcessImageFileName.patch \
-    dwproton/0001-em-backports/0011-ntoskrnl-Implement-SeLocateProcessImageName.patch \
-    dwproton/0001-em-backports/0012-ntoskrnl-Implement-PsReferencePrimaryToken.patch \
-    dwproton/0001-em-backports/0013-ntoskrnl-Implement-PsGetContextThread.patch \
-    dwproton/0001-em-backports/0014-fixup-ntoskrnl-Fix-bugs-with-create_process_object.patch \
-    dwproton/0001-em-backports/0015-fixup-ntoskrnl-SeLocateProcessImageName.patch \
-    dwproton/0001-em-backports/0016-ntoskrnl-Add-stub-for-KeCapturePersistentThreadState.patch \
-    dwproton/0001-em-backports/0017-ntoskrnl-Implement-MmGetPhysicalMemoryRanges.patch \
-    dwproton/0001-em-backports/0018-ntoskrnl-Implement-PsGetProcessPeb.patch \
-    dwproton/0002-misc-dw/0005-wdfldr.sys-Add-stub-dll.patch \
-    dwproton/0002-misc-dw/0006-wdfldr.sys-Semi-implement-WdfVersionBind.patch \
-    dwproton/0002-misc-dw/0007-wdfldr.sys-Populate-function-table-for-WdfDriverMini.patch \
-    dwproton/0002-misc-dw/0008-ntoskrnl.exe-Add-stub-for-KeGetCurrentIrql.patch \
-    dwproton/0002-misc-dw/0011-ntdll-Stop-unwinding-on-access-violation.patch \
-    dwproton/gi-timeout/0009-HACK-ws2_32-Allow-changing-request-timeout-with-WINE.patch \
-    mf/0003-mfreadwrite-reader-Rely-on-the-video-processor-sampl.patch
+if {![variant_isset vanilla]} {
+    # Hacks applied to Winehq macOS packages.
+    patchfiles-append \
+        0001-ntdll-CW-HACK-18947.diff \
+        0002-ntdll-CW-HACK-20186.diff \
+        0003-wow64cpu-CW-HACK-20760.diff \
+        0004-kernelbase-HACK-Add-hack_append_command_line.diff \
+        0005-kernelbase-CW-HACK-13322-17315-21883.diff \
+        0006-winemac-CW-HACK-22435.diff \
+        0007-ntdll-CW-HACK-22435.diff \
+        0008-ntdll-CW-HACK-23427.diff \
+        0009-win32u-CW-HACK-23950.diff \
+        0010-ntdll-CW-HACK-24256.diff \
+        0011-ntdll-CW-Hack-24265.diff \
+        0012-ntdll-CW-HACK-24711.diff \
+        0013-ntdll-CW-HACK-24945.diff \
+        0014-ntdll-CW-HACK-25719.diff \
+        0015-win32u-CW-HACK-25909.diff \
+        0016-ntdll-HACK-Winehq-Bug-56441.diff \
+        0017-winemetal-new-stub.diff \
+        0018-ntdll-HACK-Recognize-ROSETTA_X87_PATH-env.diff \
+        0019-ntdll-HACK-Recognize-WINE_DISABLE_NX_COMPAT-env.diff \
+        2001-msync-CW.patch
 
-variant endfield description "Apply the Endfield FineWine macOS and DWProton patch sets" {
+    patchfiles-append \
+        dwproton/0001-em-backports/0003-ntoskrnl-Implement-PsGetProcessSessionId.patch \
+        dwproton/0001-em-backports/0004-ntoskrnl-Implement-PsGetProcessCreateTimeQuadPart.patch \
+        dwproton/0001-em-backports/0005-ntoskrnl-Implement-PsGetThreadProcess.patch \
+        dwproton/0001-em-backports/0006-ntoskrnl-Add-stub-for-KeRegisterBugCheckCallback.patch \
+        dwproton/0001-em-backports/0007-ntoskrnl-Add-stub-for-KeRegisterBugCheckReasonCallba.patch \
+        dwproton/0001-em-backports/0008-ntoskrnl-Add-stub-for-KeDeregisterBugCheckReasonCall.patch \
+        dwproton/0001-em-backports/0009-ntoskrnl-Add-semi-stub-for-MmGetVirtualForPhysical.patch \
+        dwproton/0001-em-backports/0010-ntoskrnl-Implement-PsGetProcessImageFileName.patch \
+        dwproton/0001-em-backports/0011-ntoskrnl-Implement-SeLocateProcessImageName.patch \
+        dwproton/0001-em-backports/0012-ntoskrnl-Implement-PsReferencePrimaryToken.patch \
+        dwproton/0001-em-backports/0013-ntoskrnl-Implement-PsGetContextThread.patch \
+        dwproton/0001-em-backports/0014-fixup-ntoskrnl-Fix-bugs-with-create_process_object.patch \
+        dwproton/0001-em-backports/0015-fixup-ntoskrnl-SeLocateProcessImageName.patch \
+        dwproton/0001-em-backports/0016-ntoskrnl-Add-stub-for-KeCapturePersistentThreadState.patch \
+        dwproton/0001-em-backports/0017-ntoskrnl-Implement-MmGetPhysicalMemoryRanges.patch \
+        dwproton/0001-em-backports/0018-ntoskrnl-Implement-PsGetProcessPeb.patch \
+        dwproton/0002-misc-dw/0005-wdfldr.sys-Add-stub-dll.patch \
+        dwproton/0002-misc-dw/0006-wdfldr.sys-Semi-implement-WdfVersionBind.patch \
+        dwproton/0002-misc-dw/0007-wdfldr.sys-Populate-function-table-for-WdfDriverMini.patch \
+        dwproton/0002-misc-dw/0008-ntoskrnl.exe-Add-stub-for-KeGetCurrentIrql.patch \
+        dwproton/0002-misc-dw/0011-ntdll-Stop-unwinding-on-access-violation.patch \
+        dwproton/gi-timeout/0009-HACK-ws2_32-Allow-changing-request-timeout-with-WINE.patch \
+        mf/0003-mfreadwrite-reader-Rely-on-the-video-processor-sampl.patch
+}
+
+variant endfield conflicts vanilla description "Apply the Endfield FineWine macOS and DWProton patch sets" {
     patchfiles-append \
         endfield-finewine/stage2-dwproton/misc/0008-wintrust-Prevent-checking-if-winex11-winewayland-are.patch \
         endfield-finewine/stage2-dwproton/misc/0009-HACK-kernel32-Spoof-GetProcAddress-of-KiUserApcDispa.patch \
@@ -126,7 +131,8 @@ variant endfield description "Apply the Endfield FineWine macOS and DWProton pat
         endfield-finewine/wine-11.8/stage1-macos/0001-macos-rosetta-signal-fixes-nop-and-privinstr.patch
 }
 
-variant rosetta_stack description "Diagnostic: reserve at least 32 MiB per thread under Rosetta" {
+variant rosetta_stack conflicts vanilla description \
+    "Diagnostic: reserve at least 32 MiB per thread and emit a runtime marker" {
     patchfiles-append \
         0020-ntdll-DIAGNOSTIC-Rosetta-stack-reserve.diff
 }

@@ -46,8 +46,8 @@ jobs:
         include:
           - flavor: full
             port_variants: "+gstreamer +endfield"
-          - flavor: control
-            port_variants: "+gstreamer -endfield"
+          - flavor: vanilla
+            port_variants: "+gstreamer -endfield +vanilla"
           - flavor: rosetta-stack
             port_variants: "+gstreamer +endfield +rosetta_stack"
     env:
@@ -303,6 +303,7 @@ jobs:
 
           installed_info="$(/opt/local/bin/port -q installed "${PORT_NAME}")"
           wine_version="$(/opt/local/bin/wine --version)"
+          ntdll_unix="/opt/local/lib/wine/x86_64-unix/ntdll.so"
 
           printf 'Build flavor: %s\nPort variants: %s\n%s\n%s\n' \
             "${BUILD_FLAVOR}" "${PORT_VARIANTS}" "${installed_info}" "${wine_version}"
@@ -313,14 +314,20 @@ jobs:
             full)
               printf '%s\n' "${installed_info}" | grep -q '+endfield'
               ! printf '%s\n' "${installed_info}" | grep -q '+rosetta_stack'
+              ! printf '%s\n' "${installed_info}" | grep -q '+vanilla'
+              ! /usr/bin/strings -a "${ntdll_unix}" | grep -Fq '[ROSETTA-STACK]'
               ;;
-            control)
+            vanilla)
               ! printf '%s\n' "${installed_info}" | grep -q '+endfield'
               ! printf '%s\n' "${installed_info}" | grep -q '+rosetta_stack'
+              printf '%s\n' "${installed_info}" | grep -q '+vanilla'
+              ! /usr/bin/strings -a "${ntdll_unix}" | grep -Fq '[ROSETTA-STACK]'
               ;;
             rosetta-stack)
               printf '%s\n' "${installed_info}" | grep -q '+endfield'
               printf '%s\n' "${installed_info}" | grep -q '+rosetta_stack'
+              ! printf '%s\n' "${installed_info}" | grep -q '+vanilla'
+              /usr/bin/strings -a "${ntdll_unix}" | grep -Fq '[ROSETTA-STACK]'
               ;;
             *)
               echo "Unknown build flavor: ${BUILD_FLAVOR}" >&2
@@ -355,6 +362,10 @@ jobs:
 
           bash "${GITHUB_WORKSPACE}/.github/scripts/package-wine.sh" \
             /opt/local "${package_parent}" "${metadata_dir}"
+
+          mkdir -p "${package_root}/share/doc/wine-devel"
+          /usr/bin/install -m 0644 "${metadata_dir}/build-variant.txt" \
+            "${package_root}/share/doc/wine-devel/build-variant.txt"
 
           test -d "${package_root}/bin"
           test -d "${package_root}/lib"
