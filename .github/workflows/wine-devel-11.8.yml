@@ -1,0 +1,502 @@
+name: Build Wine 11.8
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/wine-devel-11.8.yml"
+      - "cross/llvm-mingw/**"
+      - "cross/mingw-w64-wine-mono/**"
+      - "devel/libinotify/**"
+      - "emulators/wine-devel/**"
+      - "multimedia/gstreamer.framework/**"
+  pull_request:
+    paths:
+      - ".github/scripts/**"
+      - ".github/workflows/wine-devel-11.8.yml"
+      - "cross/llvm-mingw/**"
+      - "cross/mingw-w64-wine-mono/**"
+      - "devel/libinotify/**"
+      - "emulators/wine-devel/**"
+      - "multimedia/gstreamer.framework/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wine-devel-11.8-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  MACPORTS_VERSION: "2.12.5"
+  MACPORTS_PACKAGE: "MacPorts-2.12.5-15-Sequoia.pkg"
+  MACPORTS_SHA256: "10a048e235ba252eb31ca5030dbf560409ea73cacb3267a00e3983205e9b0e36"
+  PORT_NAME: "wine-devel"
+  PORT_VERSION: "11.8"
+
+jobs:
+  build:
+    name: macOS 15 Intel (${{ matrix.flavor }})
+    runs-on: macos-15-intel
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: full
+            port_variants: "+gstreamer +endfield"
+          - flavor: vanilla
+            port_variants: "+gstreamer -endfield +vanilla"
+          - flavor: rosetta-stack
+            port_variants: "+gstreamer +endfield +rosetta_stack"
+    env:
+      BUILD_FLAVOR: ${{ matrix.flavor }}
+      PORT_VARIANTS: ${{ matrix.port_variants }}
+
+    steps:
+      - name: Checkout overlay
+        uses: actions/checkout@v7
+
+      - name: Restore build cache
+        id: cache-restore
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/wine-ci-cache
+          key: wine-devel-11.8-macos-15-intel-shared-${{ hashFiles('.github/scripts/**', '.github/workflows/wine-devel-11.8.yml', 'cross/llvm-mingw/**', 'cross/mingw-w64-wine-mono/**', 'devel/libinotify/**', 'emulators/wine-devel/**', 'multimedia/gstreamer.framework/**') }}-${{ github.run_id }}
+          restore-keys: |
+            wine-devel-11.8-macos-15-intel-shared-
+            wine-devel-11.8-macos-15-intel-
+
+      - name: Verify runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          sw_vers
+          xcodebuild -version
+          df -h /
+
+      - name: Isolate preinstalled package managers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Keep Homebrew headers and libraries out of Wine's configure checks.
+          sudo mkdir -p /opt/ci-usr-local-off /opt/ci-homebrew-off
+          if [[ -d /usr/local ]]; then
+            sudo /usr/bin/find /usr/local -mindepth 1 -maxdepth 1 \
+              -exec /bin/mv {} /opt/ci-usr-local-off/ \;
+          fi
+          if [[ -d /opt/homebrew ]]; then
+            sudo /usr/bin/find /opt/homebrew -mindepth 1 -maxdepth 1 \
+              -exec /bin/mv {} /opt/ci-homebrew-off/ \;
+          fi
+          hash -r
+
+      - name: Install MacPorts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_path="${RUNNER_TEMP}/${MACPORTS_PACKAGE}"
+          package_url="https://github.com/macports/macports-base/releases/download/v${MACPORTS_VERSION}/${MACPORTS_PACKAGE}"
+
+          /usr/bin/curl \
+            --fail \
+            --location \
+            --retry 5 \
+            --retry-all-errors \
+            --output "${package_path}" \
+            "${package_url}"
+
+          printf '%s  %s\n' "${MACPORTS_SHA256}" "${package_path}" \
+            | /usr/bin/shasum -a 256 -c -
+
+          sudo /usr/sbin/installer -pkg "${package_path}" -target /
+
+          echo "/opt/local/bin" >> "${GITHUB_PATH}"
+          echo "/opt/local/sbin" >> "${GITHUB_PATH}"
+          /opt/local/bin/port version
+
+          cache_root="${RUNNER_TEMP}/wine-ci-cache"
+          mkdir -p "${cache_root}/distfiles"
+          sudo mkdir -p "${cache_root}/ccache/tmp"
+          # MacPorts may build as a dedicated user. Cache archives preserve
+          # restrictive ccache directory modes, so normalise them after every
+          # restore before any compiler process tries to create temp files.
+          sudo chmod -R a+rwX "${cache_root}/ccache"
+          sudo mkdir -p /opt/local/var/macports/distfiles
+          if find "${cache_root}/distfiles" -mindepth 1 -print -quit \
+            | grep -q .; then
+            sudo /usr/bin/rsync -a \
+              "${cache_root}/distfiles/" \
+              /opt/local/var/macports/distfiles/
+          fi
+
+      - name: Register the local ports overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          printf '%s\n' \
+            '' \
+            'ui_interactive no' \
+            'build_arch x86_64' \
+            | sudo tee -a /opt/local/etc/macports/macports.conf >/dev/null
+
+          chmod -R a+rX "${GITHUB_WORKSPACE}"
+          current_dir="$(dirname "$(realpath "${GITHUB_WORKSPACE}")")"
+          while [[ -n "${current_dir}" && "${current_dir}" != "/" ]]; do
+            sudo chmod a+rx "${current_dir}"
+            current_dir="$(dirname "${current_dir}")"
+          done
+
+          # The overlay uses PortGroups supplied by the official ports tree.
+          sudo /opt/local/bin/port -v sync
+
+          (
+            cd "${GITHUB_WORKSPACE}"
+            /opt/local/bin/portindex -e
+          )
+
+          sources_file="/opt/local/etc/macports/sources.conf"
+          temporary_sources="$(mktemp)"
+          {
+            printf 'file://%s [nosync]\n' "${GITHUB_WORKSPACE}"
+            /bin/cat "${sources_file}"
+          } > "${temporary_sources}"
+          sudo /usr/bin/install -o root -g wheel -m 0644 \
+            "${temporary_sources}" "${sources_file}"
+          rm -f "${temporary_sources}"
+
+      - name: Validate Wine 11.8 Portfile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expected_portfile="$(realpath "${GITHUB_WORKSPACE}/emulators/wine-devel/Portfile")"
+          actual_portfile="$(realpath "$(/opt/local/bin/port -q file "${PORT_NAME}")")"
+          version_info="$(/opt/local/bin/port -q info --version "${PORT_NAME}")"
+
+          printf 'Portfile: %s\n%s\n' "${actual_portfile}" "${version_info}"
+          test "${actual_portfile}" = "${expected_portfile}"
+          printf '%s\n' "${version_info}" \
+            | grep -Eq '(^|[^0-9])11\.8([^0-9]|$)'
+
+          sudo /opt/local/bin/port -v lint "${PORT_NAME}"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read -r -a port_variants <<< "${PORT_VARIANTS}"
+          recursive_dependencies="$(
+            /opt/local/bin/port -q rdeps "${PORT_NAME}" "${port_variants[@]}"
+          )"
+          printf '%s\n' "${recursive_dependencies}"
+          for required_dependency in \
+            llvm-mingw \
+            libinotify \
+            gstreamer.framework \
+            MoltenVK-latest \
+            mingw-w64-wine-gecko-2.47.4 \
+            mingw-w64-wine-mono-11.1.0; do
+            [[ "${recursive_dependencies}" == *"${required_dependency}"* ]]
+          done
+
+          /opt/local/bin/port echo "rdepof:${PORT_NAME}"
+          sudo /opt/local/bin/port -N -v install "rdepof:${PORT_NAME}"
+          sudo /opt/local/bin/port -N -v install ccache xz
+
+          printf '%s\n' \
+            '' \
+            'configureccache yes' \
+            "ccache_dir ${RUNNER_TEMP}/wine-ci-cache/ccache" \
+            'ccache_size 3G' \
+            | sudo tee -a /opt/local/etc/macports/macports.conf >/dev/null
+
+      - name: Build Wine 11.8 from source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Dependencies may use MacPorts archives, but Wine itself must be
+          # compiled from this overlay so that every local patch is applied.
+          # Keep Wine's work/logs until configure validation finishes. The
+          # portable archive is assembled separately after the build.
+          printf '%s\n' \
+            '' \
+            'portautoclean no' \
+            'keeplogs yes' \
+            | sudo tee -a /opt/local/etc/macports/macports.conf >/dev/null
+
+          read -r -a port_variants <<< "${PORT_VARIANTS}"
+          sudo /opt/local/bin/port -N -n -s -v install \
+            "${PORT_NAME}" "${port_variants[@]}"
+
+      - name: Verify configure arguments
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          work_dir="$(sudo /opt/local/bin/port -q work "${PORT_NAME}")"
+          config_status="$(
+            sudo find "${work_dir}" -type f -name config.status -print -quit
+          )"
+          test -n "${config_status}"
+
+          configure_arguments="$(sudo "${config_status}" --config)"
+          printf '%s\n' "${configure_arguments}"
+
+          required_arguments=(
+            --build=x86_64-apple-darwin
+            --enable-archs=i386,x86_64
+            --disable-tests
+            --disable-winebth_sys
+            --without-alsa
+            --without-capi
+            --with-coreaudio
+            --with-cups
+            --without-dbus
+            --with-ffmpeg
+            --with-freetype
+            --with-gettext
+            --without-gettextpo
+            --without-gphoto
+            --with-gnutls
+            --without-gssapi
+            --with-gstreamer
+            --with-inotify
+            --without-krb5
+            --with-mingw=/opt/local/libexec/llvm-mingw/bin/clang
+            --without-netapi
+            --with-opencl
+            --without-opengl
+            --without-oss
+            --with-pcap
+            --with-pcsclite
+            --with-pthread
+            --without-pulse
+            --without-sane
+            --with-sdl
+            --without-udev
+            --without-usb
+            --without-v4l2
+            --with-vulkan
+            --without-wayland
+            --without-x
+          )
+
+          for required_argument in "${required_arguments[@]}"; do
+            [[ "${configure_arguments}" == *"${required_argument}"* ]] || {
+              printf 'Missing configure argument: %s\n' "${required_argument}" >&2
+              exit 1
+            }
+          done
+
+      - name: Verify build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          installed_info="$(/opt/local/bin/port -q installed "${PORT_NAME}")"
+          wine_version="$(/opt/local/bin/wine --version)"
+          ntdll_unix="/opt/local/lib/wine/x86_64-unix/ntdll.so"
+
+          printf 'Build flavor: %s\nPort variants: %s\n%s\n%s\n' \
+            "${BUILD_FLAVOR}" "${PORT_VARIANTS}" "${installed_info}" "${wine_version}"
+          printf '%s\n' "${installed_info}" \
+            | grep -Eq 'wine-devel @11\.8_[0-9]+.*\(active\)'
+          [[ "${wine_version}" == "wine-${PORT_VERSION}"* ]]
+          case "${BUILD_FLAVOR}" in
+            full)
+              printf '%s\n' "${installed_info}" | grep -q '+endfield'
+              ! printf '%s\n' "${installed_info}" | grep -q '+rosetta_stack'
+              ! printf '%s\n' "${installed_info}" | grep -q '+vanilla'
+              ! /usr/bin/strings -a "${ntdll_unix}" | grep -Fq '[ROSETTA-STACK]'
+              ;;
+            vanilla)
+              ! printf '%s\n' "${installed_info}" | grep -q '+endfield'
+              ! printf '%s\n' "${installed_info}" | grep -q '+rosetta_stack'
+              printf '%s\n' "${installed_info}" | grep -q '+vanilla'
+              ! /usr/bin/strings -a "${ntdll_unix}" | grep -Fq '[ROSETTA-STACK]'
+              ;;
+            rosetta-stack)
+              printf '%s\n' "${installed_info}" | grep -q '+endfield'
+              printf '%s\n' "${installed_info}" | grep -q '+rosetta_stack'
+              ! printf '%s\n' "${installed_info}" | grep -q '+vanilla'
+              /usr/bin/strings -a "${ntdll_unix}" | grep -Fq '[ROSETTA-STACK]'
+              ;;
+            *)
+              echo "Unknown build flavor: ${BUILD_FLAVOR}" >&2
+              exit 1
+              ;;
+          esac
+          /usr/bin/file /opt/local/bin/wine
+          /opt/local/bin/ccache --show-stats
+          df -h /
+
+      - name: Package portable Wine
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/wine-devel-artifacts
+        run: |
+          set -euo pipefail
+
+          package_parent="${RUNNER_TEMP}/wine-package"
+          package_root="${package_parent}/wine"
+          metadata_dir="${ARTIFACT_DIR}/metadata"
+          archive="${ARTIFACT_DIR}/wine.tar.xz"
+
+          mkdir -p "${ARTIFACT_DIR}" "${metadata_dir}"
+          printf 'Build flavor: %s\nPort variants: %s\n' \
+            "${BUILD_FLAVOR}" "${PORT_VARIANTS}" \
+            > "${metadata_dir}/build-variant.txt"
+
+          # The configured source tree is no longer needed. Removing it before
+          # staging the framework and runtime libraries keeps the 14 GB runner
+          # below its disk limit.
+          sudo /opt/local/bin/port -N clean --work "${PORT_NAME}"
+
+          bash "${GITHUB_WORKSPACE}/.github/scripts/package-wine.sh" \
+            /opt/local "${package_parent}" "${metadata_dir}"
+
+          mkdir -p "${package_root}/share/doc/wine-devel"
+          /usr/bin/install -m 0644 "${metadata_dir}/build-variant.txt" \
+            "${package_root}/share/doc/wine-devel/build-variant.txt"
+
+          test -d "${package_root}/bin"
+          test -d "${package_root}/lib"
+          test -d "${package_root}/share"
+          /usr/bin/tar -C "${package_parent}" -cf - wine \
+            | /opt/local/bin/xz -T0 -6 -c > "${archive}"
+          /usr/bin/shasum -a 256 "${archive}" \
+            > "${ARTIFACT_DIR}/wine.tar.xz.sha256"
+
+          bash "${GITHUB_WORKSPACE}/.github/scripts/audit-wine-package.sh" \
+            "${package_root}" "${archive}" "${PORT_VERSION}"
+
+          ls -lh "${archive}"
+          test "${package_root}" = "${RUNNER_TEMP}/wine-package/wine"
+          /bin/rm -rf -- "${package_root}"
+          df -h /
+
+      - name: Collect build output and diagnostics
+        if: always()
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/wine-devel-artifacts
+        run: |
+          set -u
+
+          mkdir -p \
+            "${ARTIFACT_DIR}/logs" \
+            "${ARTIFACT_DIR}/metadata"
+
+          {
+            date -u
+            uname -a
+            sw_vers
+            xcodebuild -version
+            if [[ -x /opt/local/bin/port ]]; then
+              /opt/local/bin/port version
+              /opt/local/bin/port -q info --version "${PORT_NAME}" || true
+              /opt/local/bin/port -q file "${PORT_NAME}" || true
+              /opt/local/bin/port -q installed "${PORT_NAME}" || true
+              /opt/local/bin/port variants "${PORT_NAME}" || true
+              /bin/cat /opt/local/etc/macports/sources.conf || true
+            fi
+            if [[ -x /opt/local/bin/wine ]]; then
+              /opt/local/bin/wine --version || true
+              /usr/bin/file /opt/local/bin/wine || true
+            fi
+            if [[ -x /opt/local/bin/ccache ]]; then
+              /opt/local/bin/ccache --show-stats || true
+            fi
+            df -h /
+          } > "${ARTIFACT_DIR}/metadata/build-info.txt" 2>&1
+
+          if [[ -x /opt/local/bin/port ]]; then
+            logfile="$(sudo /opt/local/bin/port -q logfile "${PORT_NAME}" 2>/dev/null || true)"
+            if [[ -n "${logfile}" ]] && sudo test -f "${logfile}"; then
+              sudo cp "${logfile}" "${ARTIFACT_DIR}/logs/main.log"
+            fi
+
+            work_dir="$(sudo /opt/local/bin/port -q work "${PORT_NAME}" 2>/dev/null || true)"
+            if [[ -n "${work_dir}" ]] && sudo test -d "${work_dir}"; then
+              sudo find "${work_dir}" -type f \
+                \( -name config.log -o -name CMakeError.log -o -name meson-log.txt \) \
+                -exec cp {} "${ARTIFACT_DIR}/logs/" \; || true
+            fi
+          fi
+
+          if [[ ! -f "${ARTIFACT_DIR}/logs/main.log" ]] \
+            && sudo test -d /opt/local/var/macports/logs; then
+            fallback_log="$(
+              sudo find /opt/local/var/macports/logs \
+                -type f -path '*wine-devel*main.log' -print -quit
+            )"
+            if [[ -n "${fallback_log}" ]]; then
+              sudo cp "${fallback_log}" "${ARTIFACT_DIR}/logs/main.log"
+            fi
+          fi
+
+          sudo chown -R "$(id -u):$(id -g)" "${ARTIFACT_DIR}"
+
+          find "${ARTIFACT_DIR}" -maxdepth 4 -type f -print
+
+      - name: Prepare build cache
+        if: always()
+        shell: bash
+        run: |
+          set -u
+
+          cache_root="${RUNNER_TEMP}/wine-ci-cache"
+          mkdir -p "${cache_root}/distfiles" "${cache_root}/ccache"
+          if sudo test -d /opt/local/var/macports/distfiles; then
+            sudo /usr/bin/rsync -a --delete \
+              /opt/local/var/macports/distfiles/ \
+              "${cache_root}/distfiles/"
+          fi
+          if [[ -x /opt/local/bin/ccache ]]; then
+            /opt/local/bin/ccache --show-stats \
+              > "${cache_root}/ccache-stats.txt" 2>&1 || true
+          fi
+          sudo chown -R "$(id -u):$(id -g)" "${cache_root}"
+
+      - name: Restore preinstalled package managers
+        if: always()
+        shell: bash
+        run: |
+          set -u
+
+          if sudo test -d /opt/ci-usr-local-off; then
+            sudo mkdir -p /usr/local
+            sudo /usr/bin/find /opt/ci-usr-local-off -mindepth 1 -maxdepth 1 \
+              -exec /bin/mv {} /usr/local/ \; || true
+          fi
+          if sudo test -d /opt/ci-homebrew-off; then
+            sudo mkdir -p /opt/homebrew
+            sudo /usr/bin/find /opt/ci-homebrew-off -mindepth 1 -maxdepth 1 \
+              -exec /bin/mv {} /opt/homebrew/ \; || true
+          fi
+          hash -r
+
+      - name: Save build cache
+        if: always() && steps.cache-restore.outcome == 'success' && matrix.flavor == 'full'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/wine-ci-cache
+          key: ${{ steps.cache-restore.outputs.cache-primary-key }}
+
+      - name: Upload build artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wine-devel-11.8-macos-15-intel-${{ matrix.flavor }}
+          path: ${{ runner.temp }}/wine-devel-artifacts
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
